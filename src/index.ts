@@ -1,11 +1,12 @@
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
-  Connection,
-  Keypair,
-  PublicKey,
-  clusterApiUrl,
-  SystemProgram,
-} from "@solana/web3.js";
-import { Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+  Program,
+  AnchorProvider,
+  Wallet,
+  setProvider,
+} from "@coral-xyz/anchor";
+// Import the types from the alignment_protocol IDL
+import type { AlignmentProtocol } from "./types/alignment_protocol";
 import fs from "fs";
 import dotenv from "dotenv";
 import axios from "axios"; // Assuming you'll use axios for OpenAI calls
@@ -16,7 +17,7 @@ dotenv.config();
 // Import your program's IDL (Interface Definition Language)
 // You'll need to copy the target/idl/alignment_protocol.json file
 // from your main program build into this oracle project (e.g., into the 'src' folder)
-import idl from "./alignment_protocol.json"; // Adjust path if needed
+import idl from "./idl.json"; // Adjust path if needed
 
 // --- Configuration ---
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL!;
@@ -46,8 +47,12 @@ const provider = new AnchorProvider(
   AnchorProvider.defaultOptions(),
 );
 
+setProvider(provider);
 // Create Anchor program instance
-const program = new Program(idl as any, PROGRAM_ID, provider);
+const program = new Program(
+  idl as AlignmentProtocol,
+  provider,
+) as Program<AlignmentProtocol>;
 
 console.log(
   `Oracle started. Using Oracle wallet: ${oracleKeypair.publicKey.toBase58()}`,
@@ -78,18 +83,23 @@ async function pollForRequests() {
     // console.log(`Found ${allAiRequests.length} total AiValidationRequest accounts.`);
 
     // 2. Filter for PENDING requests that are not already being processed
-    const pendingRequests = allAiRequests.filter((req) => {
-      // Access the 'status' field within the deserialized account data
-      // Note: The exact structure depends on your IDL's enum representation.
-      // It might be req.account.status.pending or req.account.status.hasOwnProperty('pending')
-      // Check your IDL or log the object structure if unsure.
-      // Assuming status is an object like { pending: {} } or { completed: {} } etc.
-      const isPending = req.account.status.hasOwnProperty("pending");
-      const pubkeyStr = req.publicKey.toBase58();
-      const isAlreadyProcessing = processingRequests.has(pubkeyStr);
+    const pendingRequests = allAiRequests.filter(
+      (req: {
+        publicKey: PublicKey;
+        account: any /* AiValidationRequest */;
+      }) => {
+        // Access the 'status' field within the deserialized account data
+        // Note: The exact structure depends on your IDL's enum representation.
+        // It might be req.account.status.pending or req.account.status.hasOwnProperty('pending')
+        // Check your IDL or log the object structure if unsure.
+        // Assuming status is an object like { pending: {} } or { completed: {} } etc.
+        const isPending = req.account.status.hasOwnProperty("pending");
+        const pubkeyStr = req.publicKey.toBase58();
+        const isAlreadyProcessing = processingRequests.has(pubkeyStr);
 
-      return isPending && !isAlreadyProcessing;
-    });
+        return isPending && !isAlreadyProcessing;
+      },
+    );
 
     if (pendingRequests.length > 0) {
       console.log(`Found ${pendingRequests.length} new PENDING requests.`);
@@ -165,7 +175,7 @@ async function processAiValidationRequest(
         aiValidationRequest: requestPubkey, // The request being processed
         submissionTopicLink: submissionTopicLinkPubkey, // The link being voted on
         // No other accounts seem required by the SubmitAiVote context in contexts.rs
-      })
+      } as any) // Explicitly cast to bypass strict type checking
       .signers([oracleKeypair]) // The oracle keypair MUST sign this transaction
       .rpc({ commitment: "confirmed" }); // Ensure transaction confirmation
 
