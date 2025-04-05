@@ -1,4 +1,10 @@
-import { Connection, Keypair, PublicKey, clusterApiUrl } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  clusterApiUrl,
+  SystemProgram,
+} from "@solana/web3.js";
 import { Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import fs from "fs";
 import dotenv from "dotenv";
@@ -48,6 +54,13 @@ console.log(
 );
 console.log(`Monitoring Program ID: ${PROGRAM_ID.toBase58()}`);
 console.log(`Connected to cluster: ${SOLANA_RPC_URL}`);
+
+// Derive the State PDA (needed for submit_ai_vote)
+const [statePda] = PublicKey.findProgramAddressSync(
+  [Buffer.from("state")],
+  PROGRAM_ID,
+);
+console.log(`Derived State PDA: ${statePda.toBase58()}`);
 
 // --- State Management (Simple In-Memory) ---
 // Keep track of requests currently being processed to avoid race conditions/duplicates
@@ -115,74 +128,153 @@ async function processAiValidationRequest(
   requestPubkey: PublicKey,
   requestAccount: any /* Use generated types if available */,
 ) {
-  // Fetch related accounts needed for the OpenAI prompt (Topic, Submission)
-  // The SubmissionTopicLink pubkey is inside the requestAccount
-  const submissionTopicLinkPubkey = requestAccount.submissionTopicLink;
-  const submissionTopicLinkAccount =
-    await program.account.submissionTopicLink.fetch(submissionTopicLinkPubkey);
+  try {
+    // Add try...catch block for better error isolation
+    // Fetch related accounts needed for the OpenAI prompt (Topic, Submission)
+    const submissionTopicLinkPubkey = requestAccount.submissionTopicLink;
+    const submissionTopicLinkAccount =
+      await program.account.submissionTopicLink.fetch(
+        submissionTopicLinkPubkey,
+      );
 
-  // The Topic and Submission pubkeys are inside the SubmissionTopicLink account
-  const topicPubkey = submissionTopicLinkAccount.topic;
-  const submissionPubkey = submissionTopicLinkAccount.submission;
+    const topicPubkey = submissionTopicLinkAccount.topic;
+    const submissionPubkey = submissionTopicLinkAccount.submission;
 
-  const topicAccount = await program.account.topic.fetch(topicPubkey);
-  const submissionAccount =
-    await program.account.submission.fetch(submissionPubkey);
+    const topicAccount = await program.account.topic.fetch(topicPubkey);
+    const submissionAccount =
+      await program.account.submission.fetch(submissionPubkey);
 
-  // TODO: Call OpenAI API
-  const aiDecision = await callOpenAI(
-    topicAccount.name,
-    topicAccount.description,
-    submissionAccount.dataReference,
-  ); // Returns VoteChoice enum { yes: {} } or { no: {} }
+    // 1. Call OpenAI API
+    const aiDecision = await callOpenAI(
+      topicAccount.name,
+      topicAccount.description,
+      submissionAccount.dataReference,
+    ); // Returns VoteChoice enum { yes: {} } or { no: {} }
 
-  // TODO: Call the submit_ai_vote instruction on-chain
-  console.log(
-    `Submitting AI vote (${aiDecision.hasOwnProperty("yes") ? "Yes" : "No"}) for request ${requestPubkey.toBase58()}...`,
-  );
+    // 2. Call the submit_ai_vote instruction on-chain
+    console.log(
+      `Submitting AI vote (${aiDecision.hasOwnProperty("yes") ? "Yes" : "No"}) for request ${requestPubkey.toBase58()}...`,
+    );
 
-  const txSignature = await program.methods
-    .submitAiVote(aiDecision) // Pass the AI's choice
-    .accounts({
-      aiValidationRequest: requestPubkey,
-      submissionTopicLink: submissionTopicLinkPubkey,
-      // TODO: Add ALL other accounts required by your submit_ai_vote instruction
-      // e.g., topic: topicPubkey,
-      // Make sure the 'oracle' account is the signer
-      oracle: oracleKeypair.publicKey,
-    })
-    // Important: The oracle keypair MUST sign this transaction
-    .signers([oracleKeypair])
-    .rpc();
+    const txSignature = await program.methods
+      .submitAiVote(aiDecision) // Pass the AI's choice
+      .accounts({
+        // Accounts required by SubmitAiVote context:
+        oracle: oracleKeypair.publicKey, // Signer, also passed in .signers()
+        state: statePda, // The derived state PDA
+        aiValidationRequest: requestPubkey, // The request being processed
+        submissionTopicLink: submissionTopicLinkPubkey, // The link being voted on
+        // No other accounts seem required by the SubmitAiVote context in contexts.rs
+      })
+      .signers([oracleKeypair]) // The oracle keypair MUST sign this transaction
+      .rpc({ commitment: "confirmed" }); // Ensure transaction confirmation
 
-  console.log(
-    `Successfully submitted AI vote for ${requestPubkey.toBase58()}. Transaction: ${txSignature}`,
-  );
-  // The on-chain instruction should update the AiValidationRequest status to Completed
+    console.log(
+      `Successfully submitted AI vote for ${requestPubkey.toBase58()}. Transaction: ${txSignature}`,
+    );
+    // The on-chain instruction should update the AiValidationRequest status to Completed
+  } catch (error) {
+    console.error(
+      `Failed to process request ${requestPubkey.toBase58()}:`,
+      error,
+    );
+    // Optionally, you could try to update the request status to 'Failed' on-chain here
+    // This would require another instruction or modification of submit_ai_vote
+  }
 }
 
-// --- OpenAI Call (Placeholder) ---
+// --- OpenAI Call ---
 async function callOpenAI(
-  name: string,
-  description: string,
-  dataReference: string,
+  topicName: string,
+  topicDescription: string,
+  submissionDataReference: string,
 ): Promise<any /* VoteChoice enum type */> {
-  console.log(
-    `Calling OpenAI for:\n  Topic: ${name}\n  Desc: ${description}\n  Data: ${dataReference}`,
-  );
-  // ... (Implement the actual API call using axios as shown previously) ...
-  // Construct prompt, headers, body with function call spec
-  // Parse the boolean result from OpenAI
+  const endpoint = "https://api.openai.com/v1/chat/completions";
+  const systemPrompt = `Given the following topic details and submitted data reference, evaluate whether the submission content (implied by the data reference) is appropriate, relevant, and valuable enough to be accepted into the topic. Respond ONLY using the provided function call.
 
-  // --- Placeholder ---
-  // Replace with actual API call and parsing
-  await new Promise((resolve) => setTimeout(resolve, 2000)); // Simulate network delay
-  const simulatedDecision = Math.random() > 0.5; // Random decision for testing
-  console.log(`Simulated OpenAI decision: ${simulatedDecision}`);
-  // Return the decision in the format expected by your Anchor program's VoteChoice enum
-  // Usually { yes: {} } or { no: {} }
-  return simulatedDecision ? { yes: {} } : { no: {} };
-  // --- End Placeholder ---
+Topic Name: ${topicName}
+Topic Description: ${topicDescription}
+
+Submitted Data Reference: ${submissionDataReference}
+
+Based on the topic's goal and the data reference, should this submission be accepted? Answer True for acceptance (Yes vote), False for rejection (No vote).`;
+
+  const requestBody = {
+    model: "gpt-4o", // Or your preferred model
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user", // A minimal user message might be needed
+        content: "Evaluate the submission based on the system prompt.",
+      },
+    ],
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "evaluate_submission_acceptance",
+          description:
+            "Determine if the submission should be accepted based on topic relevance and quality.",
+          parameters: {
+            type: "object",
+            properties: {
+              should_accept: {
+                type: "boolean",
+                description:
+                  "True if the submission should be accepted, False otherwise.",
+              },
+            },
+            required: ["should_accept"],
+            additionalProperties: false,
+          },
+          // strict: true // Optional: enforce strict adherence
+        },
+      },
+    ],
+    tool_choice: {
+      type: "function",
+      function: { name: "evaluate_submission_acceptance" },
+    }, // Force the function call
+  };
+
+  try {
+    console.log(
+      `Calling OpenAI for Topic: ${topicName}, Data: ${submissionDataReference}`,
+    );
+    const response = await axios.post(endpoint, requestBody, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+    });
+
+    // Extract the function call arguments
+    const toolCalls = response.data.choices[0]?.message?.tool_calls;
+    if (!toolCalls || toolCalls.length === 0 || !toolCalls[0].function) {
+      throw new Error("OpenAI did not return the expected function call.");
+    }
+
+    const functionArgs = JSON.parse(toolCalls[0].function.arguments);
+    const acceptanceDecision: boolean = functionArgs.should_accept;
+
+    console.log(`OpenAI decision: ${acceptanceDecision}`);
+
+    // Return the decision in the format expected by Anchor VoteChoice enum
+    return acceptanceDecision ? { yes: {} } : { no: {} };
+  } catch (error: any) {
+    console.error(
+      "Error calling OpenAI API:",
+      error.response?.data || error.message,
+    );
+    // Handle error - perhaps default to 'No' or retry? For now, re-throwing.
+    // Defaulting to 'No' might be safer in a production scenario.
+    // throw new Error("Failed to get valid response from OpenAI");
+    console.warn("OpenAI call failed. Defaulting to rejection (No vote).");
+    return { no: {} }; // Default to No on failure
+  }
 }
 
 // --- Start the Oracle ---
