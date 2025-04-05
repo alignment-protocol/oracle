@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/alignment_protocol.json`.
  */
 export type AlignmentProtocol = {
-  address: "3NYwpp7xv6m35he2sbWTDKPyzepwQiJq5YkD2AzdHmRc";
+  address: "T4E39enXA8obNv8iT8Sx58UoiaEcWCpg1SqBr33d28V";
   metadata: {
     name: "alignmentProtocol";
     version: "0.2.0";
