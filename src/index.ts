@@ -136,10 +136,9 @@ async function pollForRequests() {
 // --- Processing Logic ---
 async function processAiValidationRequest(
   requestPubkey: PublicKey,
-  requestAccount: any /* Use generated types if available */,
+  requestAccount: any /* Use generated types if available, e.g., AiValidationRequest */,
 ) {
   try {
-    // Add try...catch block for better error isolation
     // Fetch related accounts needed for the OpenAI prompt (Topic, Submission)
     const submissionTopicLinkPubkey = requestAccount.submissionTopicLink;
     const submissionTopicLinkAccount =
@@ -161,23 +160,30 @@ async function processAiValidationRequest(
       submissionAccount.dataReference,
     ); // Returns VoteChoice enum { yes: {} } or { no: {} }
 
+    // Read the index stored within the request account
+    const aiRequestIndex = requestAccount.requestIndex;
+    if (aiRequestIndex === undefined || aiRequestIndex === null) {
+      throw new Error(
+        `Request index (requestIndex) not found on account ${requestPubkey.toBase58()}. Check IDL and account data.`,
+      );
+    }
+    console.log(`Using request index: ${aiRequestIndex} for vote submission.`);
+
     // 2. Call the submit_ai_vote instruction on-chain
     console.log(
       `Submitting AI vote (${aiDecision.hasOwnProperty("yes") ? "Yes" : "No"}) for request ${requestPubkey.toBase58()}...`,
     );
 
     const txSignature = await program.methods
-      .submitAiVote(aiDecision) // Pass the AI's choice
+      .submitAiVote(aiRequestIndex, aiDecision) // Pass the index FIRST, then the decision
       .accounts({
-        // Accounts required by SubmitAiVote context:
-        oracle: oracleKeypair.publicKey, // Signer, also passed in .signers()
-        state: statePda, // The derived state PDA
-        aiValidationRequest: requestPubkey, // The request being processed
-        submissionTopicLink: submissionTopicLinkPubkey, // The link being voted on
-        // No other accounts seem required by the SubmitAiVote context in contexts.rs
-      } as any) // Explicitly cast to bypass strict type checking
-      .signers([oracleKeypair]) // The oracle keypair MUST sign this transaction
-      .rpc({ commitment: "confirmed" }); // Ensure transaction confirmation
+        oracle: oracleKeypair.publicKey,
+        state: statePda,
+        aiValidationRequest: requestPubkey,
+        submissionTopicLink: submissionTopicLinkPubkey,
+      } as any)
+      .signers([oracleKeypair])
+      .rpc({ commitment: "confirmed" });
 
     console.log(
       `Successfully submitted AI vote for ${requestPubkey.toBase58()}. Transaction: ${txSignature}`,

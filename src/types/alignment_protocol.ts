@@ -1479,6 +1479,7 @@ export type AlignmentProtocol = {
         {
           name: "submissionTopicLink";
           docs: ["The link between the submission and the topic"];
+          writable: true;
           pda: {
             seeds: [
               {
@@ -1574,6 +1575,10 @@ export type AlignmentProtocol = {
                 kind: "account";
                 path: "submissionTopicLink";
               },
+              {
+                kind: "arg";
+                path: "expectedAiRequestIndex";
+              },
             ];
           };
         },
@@ -1585,6 +1590,10 @@ export type AlignmentProtocol = {
       args: [
         {
           name: "tempRepToStake";
+          type: "u64";
+        },
+        {
+          name: "expectedAiRequestIndex";
           type: "u64";
         },
       ];
@@ -1959,6 +1968,10 @@ export type AlignmentProtocol = {
                 kind: "account";
                 path: "submissionTopicLink";
               },
+              {
+                kind: "arg";
+                path: "aiRequestIndex";
+              },
             ];
           };
         },
@@ -1969,6 +1982,10 @@ export type AlignmentProtocol = {
         },
       ];
       args: [
+        {
+          name: "aiRequestIndex";
+          type: "u64";
+        },
         {
           name: "aiDecision";
           type: {
@@ -2488,6 +2505,16 @@ export type AlignmentProtocol = {
       name: "mismatchedAiRequestLink";
       msg: "The AI validation request account does not correspond to the provided SubmissionTopicLink.";
     },
+    {
+      code: 6043;
+      name: "submissionAlreadyFinalized";
+      msg: "This submission has already been finalized.";
+    },
+    {
+      code: 6044;
+      name: "stateMismatch";
+      msg: "AI request index mismatch. State may have changed.";
+    },
   ];
   types: [
     {
@@ -2547,6 +2574,11 @@ export type AlignmentProtocol = {
             docs: [
               "The AI's voting power derived from temp_rep_staked (populated upon completion)",
             ];
+            type: "u64";
+          },
+          {
+            name: "requestIndex";
+            docs: ["The index (from link counter) used for this request's PDA"];
             type: "u64";
           },
           {

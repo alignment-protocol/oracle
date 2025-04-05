@@ -1229,6 +1229,7 @@
         {
           "name": "submission_topic_link",
           "docs": ["The link between the submission and the topic"],
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1288,6 +1289,10 @@
               {
                 "kind": "account",
                 "path": "submission_topic_link"
+              },
+              {
+                "kind": "arg",
+                "path": "expected_ai_request_index"
               }
             ]
           }
@@ -1300,6 +1305,10 @@
       "args": [
         {
           "name": "temp_rep_to_stake",
+          "type": "u64"
+        },
+        {
+          "name": "expected_ai_request_index",
           "type": "u64"
         }
       ]
@@ -1625,6 +1634,10 @@
               {
                 "kind": "account",
                 "path": "submission_topic_link"
+              },
+              {
+                "kind": "arg",
+                "path": "ai_request_index"
               }
             ]
           }
@@ -1636,6 +1649,10 @@
         }
       ],
       "args": [
+        {
+          "name": "ai_request_index",
+          "type": "u64"
+        },
         {
           "name": "ai_decision",
           "type": {
@@ -2095,6 +2112,16 @@
       "code": 6042,
       "name": "MismatchedAiRequestLink",
       "msg": "The AI validation request account does not correspond to the provided SubmissionTopicLink."
+    },
+    {
+      "code": 6043,
+      "name": "SubmissionAlreadyFinalized",
+      "msg": "This submission has already been finalized."
+    },
+    {
+      "code": 6044,
+      "name": "StateMismatch",
+      "msg": "AI request index mismatch. State may have changed."
     }
   ],
   "types": [
@@ -2154,6 +2181,13 @@
             "name": "ai_voting_power",
             "docs": [
               "The AI's voting power derived from temp_rep_staked (populated upon completion)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "request_index",
+            "docs": [
+              "The index (from link counter) used for this request's PDA"
             ],
             "type": "u64"
           },
